@@ -1,0 +1,66 @@
+name: Publish Test Report to GitHub Pages
+
+on:
+  workflow_run:
+    workflows: ["Playwright Tests on AWS EC2 (SSM)"]
+    types:
+      - completed
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+jobs:
+  publish-report:
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: allure-report-ec2
+          path: allure-report
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Create index page
+        run: |
+          cat > allure-report/index-redirect.html << 'EOF'
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <meta charset="utf-8">
+            <title>Test Reports</title>
+            <meta http-equiv="refresh" content="0; url=./index.html">
+          </head>
+          <body>
+            <p>Redirecting to test report...</p>
+          </body>
+          </html>
+          EOF
+      
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./allure-report
+          destination_dir: reports/${{ github.event.workflow_run.run_number }}
+          keep_files: true
+      
+      - name: Comment PR with report link
+        if: github.event.workflow_run.event == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const reportUrl = `https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/reports/${{ github.event.workflow_run.run_number }}/`;
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `## 📊 Test Report Published\n\n[View Allure Report](${reportUrl})`
+            });
