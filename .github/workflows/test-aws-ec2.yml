@@ -70,9 +70,15 @@ jobs:
             --document-name "AWS-RunShellScript" \
             --parameters 'commands=[
               "cd /tmp && rm -rf test-'$RUN_ID' && mkdir test-'$RUN_ID' && cd test-'$RUN_ID'",
-              "git clone https://github.com/${{ github.repository }}.git .",
+              "echo === Cloning repository ===",
+              "git clone https://github.com/${{ github.repository }}.git . || exit 1",
+              "echo === Verify clone ===",
+              "ls -la",
+              "ls -la tests/ || echo \"ERROR: tests directory not found\"",
+              "echo === Installing dependencies ===",
               "sudo yum install -y python3-pip java-17-amazon-corretto-headless",
               "pip3 install -r requirements.txt",
+              "echo === Downloading Allure ===",
               "wget -q https://github.com/allure-framework/allure2/releases/download/2.25.0/allure-2.25.0.tgz",
               "tar -xzf allure-2.25.0.tgz",
               "echo Setup completed"
@@ -99,6 +105,14 @@ jobs:
             fi
             sleep 5
           done
+          
+          # Show setup output
+          echo "=== Setup Output ==="
+          aws ssm get-command-invocation \
+            --command-id $SETUP_CMD \
+            --instance-id ${{ github.event.inputs.instance_id }} \
+            --query 'StandardOutputContent' \
+            --output text
       
       - name: Run tests on EC2
         id: run_tests
