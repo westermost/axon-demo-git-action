@@ -1,12 +1,12 @@
 # Axon Demo - GitHub Actions + AWS SSM
 
-Demo project for running automated tests using **TypeScript**, **Playwright**, and **Allure** with GitHub Actions and AWS SSM.
+Demo project for running automated tests using **Python**, **pytest**, and **Allure** with GitHub Actions and AWS SSM.
 
 ## Tech Stack
 
-- **Language**: TypeScript
-- **Test Framework**: Playwright
-- **Reporting**: Allure, Playwright HTML Reporter
+- **Language**: Python 3.11
+- **Test Framework**: pytest
+- **Reporting**: Allure, pytest-html
 - **CI/CD**: GitHub Actions
 - **Infrastructure**: AWS EC2 + SSM
 
@@ -15,12 +15,11 @@ Demo project for running automated tests using **TypeScript**, **Playwright**, a
 ```
 .
 ├── tests/
-│   ├── demo.spec.ts           # Basic Playwright tests
-│   └── allure-demo.spec.ts    # Tests with Allure annotations
-├── playwright.config.ts       # Playwright configuration
-├── tsconfig.json             # TypeScript configuration
-├── package.json              # Dependencies
-└── README.md                 # This file
+│   ├── test_demo.py           # Basic pytest tests
+│   └── test_allure_demo.py    # Tests with Allure annotations
+├── requirements.txt           # Python dependencies
+├── pytest.ini                 # Pytest configuration
+└── README.md                  # This file
 ```
 
 ## Local Setup
@@ -28,61 +27,44 @@ Demo project for running automated tests using **TypeScript**, **Playwright**, a
 ### Install Dependencies
 
 ```bash
-npm install
-npx playwright install chromium
+pip install -r requirements.txt
 ```
 
 ### Run Tests
 
 ```bash
 # Run all tests
-npm test
+pytest tests/ -v
 
-# Run with UI mode
-npm run test:ui
+# Generate HTML report
+pytest tests/ --html=report.html --self-contained-html
 
-# Run in headed mode
-npm run test:headed
-
-# Show HTML report
-npm run report
-```
-
-### Generate Allure Report
-
-```bash
-# Run tests with Allure
-npm test
-
-# Generate Allure report
-npm run allure:generate
-
-# Open Allure report
-npm run allure:open
+# Generate Allure results
+pytest tests/ --alluredir=allure-results
 ```
 
 ## Test Features
 
-### Basic Tests (demo.spec.ts)
-- ✅ Page navigation
-- ✅ Title verification
-- ✅ Search functionality
-- ✅ API testing
+### Basic Tests (test_demo.py)
+- ✅ Math operations
+- ✅ String operations
+- ✅ List operations
+- ✅ Parametrized tests
 
-### Allure Tests (allure-demo.spec.ts)
+### Allure Tests (test_allure_demo.py)
 - ✅ Epic/Feature/Story annotations
 - ✅ Severity levels
 - ✅ Step-by-step execution
 - ✅ Attachments
-- ✅ Performance testing
+- ✅ API testing
 
 ## CI/CD Workflow
 
 The GitHub Actions workflow:
 1. Starts EC2 instance on-demand
-2. Executes Playwright tests via SSM
+2. Executes pytest tests via SSM
 3. Uploads results to S3
-4. Generates Allure reports
+4. Generates test reports
 5. Stops EC2 instance
 
 ## Architecture

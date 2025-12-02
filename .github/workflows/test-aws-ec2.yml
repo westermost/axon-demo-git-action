@@ -64,29 +64,26 @@ jobs:
           RUN_ID=$(date +%Y%m%d-%H%M%S)
           echo "run_id=$RUN_ID" >> $GITHUB_OUTPUT
 
-          echo "Setting up environment and running tests on EC2..."
+          echo "Running Python tests on EC2..."
           COMMAND_ID=$(aws ssm send-command \
             --instance-ids ${{ github.event.inputs.instance_id }} \
             --document-name "AWS-RunShellScript" \
             --timeout-seconds 1800 \
             --parameters 'commands=[
-              "echo \"=== Installing Docker ===\"",
-              "sudo yum install -y docker",
-              "sudo systemctl start docker",
-              "sudo usermod -a -G docker ssm-user",
-              "echo \"=== Cloning repository ===\"",
+              "echo \"=== Setup Python environment ===\"",
               "cd /tmp && rm -rf test-run-'$RUN_ID'",
               "mkdir -p test-run-'$RUN_ID' && cd test-run-'$RUN_ID'",
               "git clone https://github.com/${{ github.repository }}.git .",
-              "echo \"=== Running tests in Docker ===\"",
-              "sudo docker run --rm -v $(pwd):/work -w /work mcr.microsoft.com/playwright:v1.48.0-jammy /bin/bash -c \"npm ci && npx playwright install chromium && npm test\" || true",
+              "python3 -m pip install --user -r requirements.txt",
+              "echo \"=== Running tests ===\"",
+              "python3 -m pytest tests/ -v --html=report.html --self-contained-html --alluredir=allure-results",
               "echo \"=== Test results ===\"",
-              "ls -la playwright-report/ allure-results/ || echo \"No reports found\"",
+              "ls -la report.html allure-results/ || echo \"No reports found\"",
               "echo \"=== Uploading to S3 ===\"",
-              "tar -czf results.tar.gz playwright-report/ allure-results/ || true",
-              "aws s3 cp results.tar.gz s3://${{ github.event.inputs.s3_bucket }}/'$RUN_ID'/results.tar.gz || echo \"Failed to upload tar\"",
-              "aws s3 cp playwright-report/ s3://${{ github.event.inputs.s3_bucket }}/'$RUN_ID'/playwright-report/ --recursive || echo \"No playwright-report\"",
-              "aws s3 cp allure-results/ s3://${{ github.event.inputs.s3_bucket }}/'$RUN_ID'/allure-results/ --recursive || echo \"No allure-results\"",
+              "tar -czf results.tar.gz report.html allure-results/ || true",
+              "aws s3 cp results.tar.gz s3://${{ github.event.inputs.s3_bucket }}/'$RUN_ID'/results.tar.gz",
+              "aws s3 cp report.html s3://${{ github.event.inputs.s3_bucket }}/'$RUN_ID'/report.html || true",
+              "aws s3 cp allure-results/ s3://${{ github.event.inputs.s3_bucket }}/'$RUN_ID'/allure-results/ --recursive || true",
               "echo \"=== Completed ===\""
             ]' \
             --query 'Command.CommandId' \
