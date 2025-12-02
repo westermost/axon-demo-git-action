@@ -151,50 +151,6 @@ jobs:
           echo "Pytest HTML: https://${{ github.event.inputs.s3_bucket }}.s3.ap-southeast-1.amazonaws.com/$RUN_ID/report.html"
           echo "Allure Report (zip): https://${{ github.event.inputs.s3_bucket }}.s3.ap-southeast-1.amazonaws.com/$RUN_ID/allure-report.tar.gz"
       
-      - name: Download test results from S3
-        if: always()
-        run: |
-          RUN_ID=${{ steps.setup.outputs.run_id }}
-          mkdir -p test-results
-
-          echo "Downloading results from S3..."
-          aws s3 cp s3://${{ github.event.inputs.s3_bucket }}/$RUN_ID/ test-results/ --recursive || true
-
-          ls -la test-results/
-
-      - name: Extract results
-        if: always()
-        run: |
-          cd test-results
-          if [ -f results.tar.gz ]; then
-            tar -xzf results.tar.gz
-            ls -la
-          fi
-
-      - name: Generate Allure report
-        if: always()
-        run: |
-          if [ -d test-results/allure-results ]; then
-            npm install -g allure-commandline
-            allure generate test-results/allure-results -o allure-report --clean
-          fi
-
-      - name: Upload Playwright report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: playwright-report-ec2
-          path: test-results/playwright-report/
-          retention-days: 30
-
-      - name: Upload Allure report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: allure-report-ec2
-          path: allure-report/
-          retention-days: 30
-
       - name: Stop EC2 instance
         if: always()
         run: |
