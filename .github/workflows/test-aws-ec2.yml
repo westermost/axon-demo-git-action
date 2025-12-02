@@ -184,6 +184,8 @@ jobs:
             --document-name "AWS-RunShellScript" \
             --parameters 'commands=[
               "cd /tmp/test-'$RUN_ID'",
+              "aws s3 sync allure-report/ s3://${{ github.event.inputs.s3_bucket }}/'$RUN_ID'/allure-report/ --content-type text/html --exclude \"*\" --include \"*.html\"",
+              "aws s3 sync allure-report/ s3://${{ github.event.inputs.s3_bucket }}/'$RUN_ID'/allure-report/ --exclude \"*.html\"",
               "tar -czf allure-report.tar.gz allure-report/",
               "aws s3 cp allure-report.tar.gz s3://${{ github.event.inputs.s3_bucket }}/'$RUN_ID'/allure-report.tar.gz",
               "echo Upload completed"
@@ -210,6 +212,7 @@ jobs:
           echo ""
           echo "📊 Reports:"
           echo "Pytest HTML: https://${{ github.event.inputs.s3_bucket }}.s3.ap-southeast-1.amazonaws.com/$RUN_ID/report.html"
+          echo "Allure Report (online): https://${{ github.event.inputs.s3_bucket }}.s3.ap-southeast-1.amazonaws.com/$RUN_ID/allure-report/index.html"
           echo "Allure Report (zip): https://${{ github.event.inputs.s3_bucket }}.s3.ap-southeast-1.amazonaws.com/$RUN_ID/allure-report.tar.gz"
       
       - name: Stop EC2 instance
