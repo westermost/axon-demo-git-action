@@ -242,9 +242,33 @@ jobs:
           echo "Allure Report (online): https://${{ github.event.inputs.s3_bucket }}.s3.ap-southeast-1.amazonaws.com/$RUN_ID/allure-report/index.html"
           echo "Allure Report (zip): https://${{ github.event.inputs.s3_bucket }}.s3.ap-southeast-1.amazonaws.com/$RUN_ID/allure-report.tar.gz"
       
-      - name: Stop EC2 instance
-        if: always()
+      - name: Serve Allure report on EC2
         run: |
-          echo "Stopping EC2 instance..."
-          aws ec2 stop-instances --instance-ids ${{ github.event.inputs.instance_id }}
-          echo "✓ Instance stopped"
+          RUN_ID=${{ steps.setup.outputs.run_id }}
+          
+          # Get EC2 public IP
+          PUBLIC_IP=$(aws ec2 describe-instances \
+            --instance-ids ${{ github.event.inputs.instance_id }} \
+            --query 'Reservations[0].Instances[0].PublicIpAddress' \
+            --output text)
+          
+          echo "Starting HTTP server for Allure report..."
+          aws ssm send-command \
+            --instance-ids ${{ github.event.inputs.instance_id }} \
+            --document-name "AWS-RunShellScript" \
+            --parameters 'commands=[
+              "cd /tmp/test-'$RUN_ID'/allure-report",
+              "nohup python3 -m http.server 8000 > /tmp/allure-server.log 2>&1 &",
+              "echo Server started on port 8000"
+            ]' \
+            --query 'Command.CommandId' \
+            --output text
+          
+          sleep 3
+          
+          echo ""
+          echo "🌐 Allure Report Server:"
+          echo "URL: http://$PUBLIC_IP:8000"
+          echo ""
+          echo "⚠️  Make sure Security Group allows inbound traffic on port 8000"
+          echo "To add rule: aws ec2 authorize-security-group-ingress --group-id <sg-id> --protocol tcp --port 8000 --cidr 0.0.0.0/0"
