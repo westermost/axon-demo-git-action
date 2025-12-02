@@ -111,7 +111,17 @@ jobs:
             --document-name "AWS-RunShellScript" \
             --parameters 'commands=[
               "cd /tmp/test-'$RUN_ID'",
+              "echo === Current directory ===",
+              "pwd",
+              "echo === List all files ===",
+              "ls -la",
+              "echo === Test directory ===",
+              "ls -la tests/",
+              "echo === Test file content ===",
+              "cat tests/test_simple.py",
+              "echo === Running pytest ===",
               "python3 -m pytest tests/ -v --html=report.html --self-contained-html --alluredir=allure-results",
+              "echo === Upload HTML report ===",
               "aws s3 cp report.html s3://${{ github.event.inputs.s3_bucket }}/'$RUN_ID'/report.html --content-type text/html",
               "echo Tests completed"
             ]' \
