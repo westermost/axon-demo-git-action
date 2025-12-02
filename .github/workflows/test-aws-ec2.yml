@@ -6,11 +6,11 @@ on:
       instance_id:
         description: 'EC2 Instance ID'
         required: true
-        default: 'i-xxxxxxxxx'
+        default: 'i-0cd39c0cf451a83cc'
       s3_bucket:
         description: 'S3 Bucket for results'
         required: true
-        default: 'corev2-test-results'
+        default: 'kiemtraxe'
 
 permissions:
   id-token: write
@@ -25,31 +25,31 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-      
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
-      
+
       - name: Start EC2 instance
         run: |
           echo "Starting EC2 instance ${{ github.event.inputs.instance_id }}"
           aws ec2 start-instances --instance-ids ${{ github.event.inputs.instance_id }}
           aws ec2 wait instance-running --instance-ids ${{ github.event.inputs.instance_id }}
           echo "✓ Instance started"
-      
+
       - name: Wait for SSM agent
         run: |
           echo "Waiting for SSM agent to be ready..."
           sleep 30
-          
+
           for i in {1..12}; do
             STATUS=$(aws ssm describe-instance-information \
               --filters "Key=InstanceIds,Values=${{ github.event.inputs.instance_id }}" \
               --query 'InstanceInformationList[0].PingStatus' \
               --output text 2>/dev/null || echo "Unknown")
-            
+
             echo "SSM Status: $STATUS"
             if [ "$STATUS" = "Online" ]; then
               echo "✓ SSM agent is ready"
@@ -57,13 +57,13 @@ jobs:
             fi
             sleep 10
           done
-      
+
       - name: Setup test environment on EC2
         id: setup
         run: |
           RUN_ID=$(date +%Y%m%d-%H%M%S)
           echo "run_id=$RUN_ID" >> $GITHUB_OUTPUT
-          
+
           echo "Setting up Node.js and dependencies on EC2..."
           COMMAND_ID=$(aws ssm send-command \
             --instance-ids ${{ github.event.inputs.instance_id }} \
@@ -78,15 +78,15 @@ jobs:
             ]' \
             --query 'Command.CommandId' \
             --output text)
-          
+
           echo "Setup Command ID: $COMMAND_ID"
           sleep 20
-      
+
       - name: Run tests on EC2
         id: run_tests
         run: |
           RUN_ID=${{ steps.setup.outputs.run_id }}
-          
+
           echo "Running Playwright tests on EC2..."
           COMMAND_ID=$(aws ssm send-command \
             --instance-ids ${{ github.event.inputs.instance_id }} \
@@ -98,7 +98,8 @@ jobs:
               "mkdir -p test-run-'$RUN_ID' && cd test-run-'$RUN_ID'",
               "git clone https://github.com/${{ github.repository }}.git .",
               "npm ci",
-              "npx playwright install --with-deps chromium",
+              "sudo yum install -y atk cups-libs gtk3 libXcomposite alsa-lib libXdamage libXrandr mesa-libgbm pango at-spi2-atk libXScrnSaver",
+              "npx playwright install chromium",
               "npm test || true",
               "ls -la playwright-report/ allure-results/",
               "tar -czf results.tar.gz playwright-report/ allure-results/ || true",
@@ -109,9 +110,9 @@ jobs:
             ]' \
             --query 'Command.CommandId' \
             --output text)
-          
+
           echo "Test Command ID: $COMMAND_ID"
-          
+
           # Wait for completion
           for i in {1..60}; do
             STATUS=$(aws ssm get-command-invocation \
@@ -119,15 +120,15 @@ jobs:
               --instance-id ${{ github.event.inputs.instance_id }} \
               --query 'Status' \
               --output text 2>/dev/null || echo "Pending")
-            
+
             echo "[$i/60] Test Status: $STATUS"
-            
+
             if [ "$STATUS" = "Success" ] || [ "$STATUS" = "Failed" ]; then
               break
             fi
             sleep 10
           done
-          
+
           # Get output
           echo "=== Test Output ==="
           aws ssm get-command-invocation \
@@ -135,18 +136,18 @@ jobs:
             --instance-id ${{ github.event.inputs.instance_id }} \
             --query 'StandardOutputContent' \
             --output text
-      
+
       - name: Download test results from S3
         if: always()
         run: |
           RUN_ID=${{ steps.setup.outputs.run_id }}
           mkdir -p test-results
-          
+
           echo "Downloading results from S3..."
           aws s3 cp s3://${{ github.event.inputs.s3_bucket }}/$RUN_ID/ test-results/ --recursive || true
-          
+
           ls -la test-results/
-      
+
       - name: Extract results
         if: always()
         run: |
@@ -155,7 +156,7 @@ jobs:
             tar -xzf results.tar.gz
             ls -la
           fi
-      
+
       - name: Generate Allure report
         if: always()
         run: |
@@ -163,7 +164,7 @@ jobs:
             npm install -g allure-commandline
             allure generate test-results/allure-results -o allure-report --clean
           fi
-      
+
       - name: Upload Playwright report
         if: always()
         uses: actions/upload-artifact@v4
@@ -171,7 +172,7 @@ jobs:
           name: playwright-report-ec2
           path: test-results/playwright-report/
           retention-days: 30
-      
+
       - name: Upload Allure report
         if: always()
         uses: actions/upload-artifact@v4
@@ -179,7 +180,7 @@ jobs:
           name: allure-report-ec2
           path: allure-report/
           retention-days: 30
-      
+
       - name: Stop EC2 instance
         if: always()
         run: |
