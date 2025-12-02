@@ -1,0 +1,27 @@
+# Node.js
+node_modules/
+package-lock.json
+yarn.lock
+
+# Playwright
+test-results/
+playwright-report/
+playwright/.cache/
+
+# Allure
+allure-results/
+allure-report/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Demo config
+.demo-config
+*.pem
