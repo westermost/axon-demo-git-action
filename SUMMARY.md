@@ -4,8 +4,9 @@
 
 | File | Purpose | When to Use |
 |------|---------|-------------|
-| **QUICK_START.md** | 5-minute setup commands | Bạn muốn setup nhanh, đã quen AWS |
-| **SETUP_STEP_BY_STEP.md** | Chi tiết từng bước + troubleshooting | Lần đầu setup, cần hướng dẫn chi tiết |
+| **SETUP_CONSOLE.md** | Setup qua AWS Console (GUI) | 👉 KHUYẾN NGHỊ - Không cần CLI |
+| **QUICK_START.md** | 5-minute setup commands | Bạn muốn setup nhanh, đã quen AWS CLI |
+| **SETUP_STEP_BY_STEP.md** | Chi tiết từng bước CLI + troubleshooting | Prefer command line |
 | **WORKFLOW_GUIDE.md** | Giải thích workflows | Hiểu cách workflows hoạt động |
 | **README.md** | Project overview | Tổng quan project |
 
