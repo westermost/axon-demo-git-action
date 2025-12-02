@@ -1,4 +1,415 @@
-# Setup Guide - Step by Step
+# Setup Guide - Step by Step (CLI)
+
+Hướng dẫn setup qua AWS CLI cho project Python + pytest + Allure.
+
+---
+
+## Prerequisites
+
+- AWS Account với admin access
+- AWS CLI installed và configured
+- GitHub account
+
+---
+
+## STEP 1: Lấy thông tin cần thiết
+
+```bash
+# Lấy AWS Account ID
+aws sts get-caller-identity --query Account --output text
+
+# Lưu lại:
+# - AWS Account ID: ____________
+# - GitHub Username: westermost
+# - GitHub Repo: axon-demo-git-action
+# - AWS Region: ap-southeast-1 (Singapore)
+```
+
+---
+
+## STEP 2: Tạo S3 Bucket
+
+```bash
+# Tạo bucket
+BUCKET_NAME="test-results-$(date +%s)"
+AWS_REGION="ap-southeast-1"
+
+aws s3 mb s3://${BUCKET_NAME} --region ${AWS_REGION}
+
+# Verify
+aws s3 ls | grep test-results
+```
+
+**✓ Lưu lại bucket name:** `_______________________`
+
+---
+
+## STEP 3: Tạo OIDC Provider cho GitHub
+
+```bash
+# Tạo OIDC provider (chỉ làm 1 lần)
+aws iam create-open-id-connect-provider \
+  --url https://token.actions.githubusercontent.com \
+  --client-id-list sts.amazonaws.com \
+  --thumbprint-list 6938fd4d98bab03faadb97b34396831e3780aea1
+
+# Verify
+aws iam list-open-id-connect-providers
+```
+
+---
+
+## STEP 4: Tạo IAM Role cho GitHub Actions
+
+```bash
+# Set variables
+GITHUB_ORG="westermost"
+GITHUB_REPO="axon-demo-git-action"
+AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+
+# Create trust policy
+cat > github-trust-policy.json << EOF
+{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Effect": "Allow",
+    "Principal": {
+      "Federated": "arn:aws:iam::${AWS_ACCOUNT_ID}:oidc-provider/token.actions.githubusercontent.com"
+    },
+    "Action": "sts:AssumeRoleWithWebIdentity",
+    "Condition": {
+      "StringEquals": {
+        "token.actions.githubusercontent.com:aud": "sts.amazonaws.com"
+      },
+      "StringLike": {
+        "token.actions.githubusercontent.com:sub": "repo:${GITHUB_ORG}/${GITHUB_REPO}:*"
+      }
+    }
+  }]
+}
+EOF
+
+# Create role
+aws iam create-role \
+  --role-name GitHubActionsRole \
+  --assume-role-policy-document file://github-trust-policy.json
+
+# Attach policies
+aws iam attach-role-policy \
+  --role-name GitHubActionsRole \
+  --policy-arn arn:aws:iam::aws:policy/AmazonEC2FullAccess
+
+aws iam attach-role-policy \
+  --role-name GitHubActionsRole \
+  --policy-arn arn:aws:iam::aws:policy/AmazonSSMFullAccess
+
+aws iam attach-role-policy \
+  --role-name GitHubActionsRole \
+  --policy-arn arn:aws:iam::aws:policy/AmazonS3FullAccess
+```
+
+**✓ Role ARN:** `arn:aws:iam::${AWS_ACCOUNT_ID}:role/GitHubActionsRole`
+
+---
+
+## STEP 5: Tạo IAM Role cho EC2
+
+```bash
+# Create trust policy
+cat > ec2-trust-policy.json << 'EOF'
+{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Effect": "Allow",
+    "Principal": {"Service": "ec2.amazonaws.com"},
+    "Action": "sts:AssumeRole"
+  }]
+}
+EOF
+
+# Create role
+aws iam create-role \
+  --role-name SSMInstanceRole \
+  --assume-role-policy-document file://ec2-trust-policy.json
+
+# Attach policies
+aws iam attach-role-policy \
+  --role-name SSMInstanceRole \
+  --policy-arn arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+
+aws iam attach-role-policy \
+  --role-name SSMInstanceRole \
+  --policy-arn arn:aws:iam::aws:policy/AmazonS3FullAccess
+
+# Create instance profile
+aws iam create-instance-profile \
+  --instance-profile-name SSMInstanceProfile
+
+aws iam add-role-to-instance-profile \
+  --instance-profile-name SSMInstanceProfile \
+  --role-name SSMInstanceRole
+
+# Wait for propagation
+sleep 10
+```
+
+---
+
+## STEP 6: Launch EC2 Instance
+
+```bash
+# Launch instance
+INSTANCE_ID=$(aws ec2 run-instances \
+  --image-id resolve:ssm:/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64 \
+  --instance-type t3.medium \
+  --iam-instance-profile Name=SSMInstanceProfile \
+  --tag-specifications 'ResourceType=instance,Tags=[{Key=Name,Value=Test-Runner}]' \
+  --region ${AWS_REGION} \
+  --query 'Instances[0].InstanceId' \
+  --output text)
+
+echo "Instance ID: $INSTANCE_ID"
+
+# Wait for running
+aws ec2 wait instance-running --instance-ids $INSTANCE_ID --region ${AWS_REGION}
+
+# Get public IP
+PUBLIC_IP=$(aws ec2 describe-instances \
+  --instance-ids $INSTANCE_ID \
+  --region ${AWS_REGION} \
+  --query 'Reservations[0].Instances[0].PublicIpAddress' \
+  --output text)
+
+echo "Public IP: $PUBLIC_IP"
+```
+
+**✓ Lưu lại:**
+- Instance ID: `____________`
+- Public IP: `____________`
+
+---
+
+## STEP 7: Open Port 8000 (for Allure report)
+
+```bash
+# Get Security Group ID
+SG_ID=$(aws ec2 describe-instances \
+  --instance-ids $INSTANCE_ID \
+  --region ${AWS_REGION} \
+  --query 'Reservations[0].Instances[0].SecurityGroups[0].GroupId' \
+  --output text)
+
+# Add rule for port 8000
+aws ec2 authorize-security-group-ingress \
+  --group-id $SG_ID \
+  --protocol tcp \
+  --port 8000 \
+  --cidr 0.0.0.0/0 \
+  --region ${AWS_REGION}
+
+echo "Port 8000 opened on Security Group: $SG_ID"
+```
+
+---
+
+## STEP 8: Verify SSM Agent
+
+```bash
+# Wait for SSM agent
+echo "Waiting for SSM agent..."
+sleep 60
+
+# Check status
+aws ssm describe-instance-information \
+  --filters "Key=InstanceIds,Values=$INSTANCE_ID" \
+  --region ${AWS_REGION} \
+  --query 'InstanceInformationList[0].[InstanceId,PingStatus]' \
+  --output table
+```
+
+**Expected:** PingStatus = `Online`
+
+---
+
+## STEP 9: Test SSM Connection
+
+```bash
+# Send test command
+COMMAND_ID=$(aws ssm send-command \
+  --instance-ids $INSTANCE_ID \
+  --document-name "AWS-RunShellScript" \
+  --parameters 'commands=["echo Hello from SSM", "python3 --version"]' \
+  --region ${AWS_REGION} \
+  --query 'Command.CommandId' \
+  --output text)
+
+# Wait and check result
+sleep 10
+
+aws ssm get-command-invocation \
+  --command-id $COMMAND_ID \
+  --instance-id $INSTANCE_ID \
+  --region ${AWS_REGION} \
+  --query 'StandardOutputContent' \
+  --output text
+```
+
+---
+
+## STEP 10: Add GitHub Secret
+
+1. Go to: https://github.com/westermost/axon-demo-git-action/settings/secrets/actions
+2. Click **New repository secret**
+3. Add:
+   - **Name:** `AWS_ROLE_ARN`
+   - **Value:** `arn:aws:iam::<YOUR_ACCOUNT_ID>:role/GitHubActionsRole`
+4. Click **Add secret**
+
+---
+
+## STEP 11: Run Workflow
+
+1. Go to: https://github.com/westermost/axon-demo-git-action/actions
+2. Click: **"Python Tests on AWS EC2 (SSM)"**
+3. Click: **"Run workflow"**
+4. Enter:
+   - **instance_id:** `<your-instance-id>`
+   - **s3_bucket:** `<your-bucket-name>`
+5. Click: **"Run workflow"**
+6. Wait ~3-4 minutes
+
+---
+
+## STEP 12: View Reports
+
+### Option 1: EC2 HTTP Server (Fastest)
+```
+http://<PUBLIC_IP>:8000
+```
+
+### Option 2: S3 Online
+```
+https://<bucket>.s3.ap-southeast-1.amazonaws.com/<run-id>/allure-report/index.html
+```
+
+### Option 3: Pytest HTML
+```
+https://<bucket>.s3.ap-southeast-1.amazonaws.com/<run-id>/report.html
+```
+
+---
+
+## STEP 13: Stop EC2 (Save Cost)
+
+```bash
+# Stop instance
+aws ec2 stop-instances --instance-ids $INSTANCE_ID --region ${AWS_REGION}
+
+# Verify
+aws ec2 describe-instances \
+  --instance-ids $INSTANCE_ID \
+  --region ${AWS_REGION} \
+  --query 'Reservations[0].Instances[0].State.Name' \
+  --output text
+```
+
+---
+
+## Cleanup (Optional)
+
+```bash
+# Terminate EC2
+aws ec2 terminate-instances --instance-ids $INSTANCE_ID --region ${AWS_REGION}
+
+# Delete S3 bucket
+aws s3 rb s3://${BUCKET_NAME} --force
+
+# Delete IAM roles (optional)
+aws iam remove-role-from-instance-profile \
+  --instance-profile-name SSMInstanceProfile \
+  --role-name SSMInstanceRole
+
+aws iam delete-instance-profile --instance-profile-name SSMInstanceProfile
+
+aws iam detach-role-policy \
+  --role-name SSMInstanceRole \
+  --policy-arn arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+
+aws iam detach-role-policy \
+  --role-name SSMInstanceRole \
+  --policy-arn arn:aws:iam::aws:policy/AmazonS3FullAccess
+
+aws iam delete-role --role-name SSMInstanceRole
+
+# Similar for GitHubActionsRole
+```
+
+---
+
+## Troubleshooting
+
+### SSM Agent not Online
+```bash
+# Check instance status
+aws ec2 describe-instance-status --instance-ids $INSTANCE_ID --region ${AWS_REGION}
+
+# Reboot if needed
+aws ec2 reboot-instances --instance-ids $INSTANCE_ID --region ${AWS_REGION}
+```
+
+### Port 8000 not accessible
+```bash
+# Verify security group rule
+aws ec2 describe-security-groups \
+  --group-ids $SG_ID \
+  --region ${AWS_REGION} \
+  --query 'SecurityGroups[0].IpPermissions'
+```
+
+### Tests not running
+- Check setup logs in workflow
+- Verify git is installed on EC2
+- Check internet connectivity
+
+### Allure report empty
+- Tests may have failed
+- Check pytest output
+- Verify allure-pytest installed
+
+---
+
+## Summary Checklist
+
+- [ ] S3 bucket created
+- [ ] OIDC provider created
+- [ ] GitHub Actions IAM role created
+- [ ] EC2 IAM role created
+- [ ] EC2 instance launched
+- [ ] Port 8000 opened
+- [ ] SSM agent online
+- [ ] GitHub secret added
+- [ ] Workflow runs successfully
+- [ ] Report accessible on port 8000
+
+---
+
+## Quick Reference
+
+```bash
+# Save configuration
+cat > .env << EOF
+AWS_ACCOUNT_ID=${AWS_ACCOUNT_ID}
+AWS_REGION=${AWS_REGION}
+INSTANCE_ID=${INSTANCE_ID}
+PUBLIC_IP=${PUBLIC_IP}
+BUCKET_NAME=${BUCKET_NAME}
+ROLE_ARN=arn:aws:iam::${AWS_ACCOUNT_ID}:role/GitHubActionsRole
+EOF
+
+echo "Configuration saved to .env"
+```
+
+**Report URL:** `http://${PUBLIC_IP}:8000`
 
 ## Prerequisites
 
