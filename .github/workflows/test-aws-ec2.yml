@@ -114,9 +114,9 @@ jobs:
               "cat tests/test_simple.py",
               "python3 -m pytest tests/ -v --html=report.html --self-contained-html --alluredir=allure-results",
               "./allure-2.25.0/bin/allure generate allure-results -o allure-report --clean",
+              "tar -czf allure-report.tar.gz allure-report/",
               "aws s3 cp report.html s3://${{ github.event.inputs.s3_bucket }}/'$RUN_ID'/report.html --content-type text/html",
-              "aws s3 sync allure-report/ s3://${{ github.event.inputs.s3_bucket }}/'$RUN_ID'/allure-report/ --content-type text/html --exclude \"*\" --include \"*.html\"",
-              "aws s3 sync allure-report/ s3://${{ github.event.inputs.s3_bucket }}/'$RUN_ID'/allure-report/ --exclude \"*.html\"",
+              "aws s3 cp allure-report.tar.gz s3://${{ github.event.inputs.s3_bucket }}/'$RUN_ID'/allure-report.tar.gz",
               "echo Done"
             ]' \
             --query 'Command.CommandId' \
@@ -148,8 +148,8 @@ jobs:
           
           echo ""
           echo "📊 Reports:"
-          echo "Pytest: https://${{ github.event.inputs.s3_bucket }}.s3.ap-southeast-1.amazonaws.com/$RUN_ID/report.html"
-          echo "Allure: https://${{ github.event.inputs.s3_bucket }}.s3.ap-southeast-1.amazonaws.com/$RUN_ID/allure-report/index.html"
+          echo "Pytest HTML: https://${{ github.event.inputs.s3_bucket }}.s3.ap-southeast-1.amazonaws.com/$RUN_ID/report.html"
+          echo "Allure Report (zip): https://${{ github.event.inputs.s3_bucket }}.s3.ap-southeast-1.amazonaws.com/$RUN_ID/allure-report.tar.gz"
 
           echo "Test Command ID: $COMMAND_ID"
 
