@@ -101,6 +101,7 @@ jobs:
           done
       
       - name: Run tests on EC2
+        id: run_tests
         run: |
           RUN_ID=${{ steps.setup.outputs.run_id }}
           
@@ -110,14 +111,9 @@ jobs:
             --document-name "AWS-RunShellScript" \
             --parameters 'commands=[
               "cd /tmp/test-'$RUN_ID'",
-              "ls -la tests/",
-              "cat tests/test_simple.py",
               "python3 -m pytest tests/ -v --html=report.html --self-contained-html --alluredir=allure-results",
-              "./allure-2.25.0/bin/allure generate allure-results -o allure-report --clean",
-              "tar -czf allure-report.tar.gz allure-report/",
               "aws s3 cp report.html s3://${{ github.event.inputs.s3_bucket }}/'$RUN_ID'/report.html --content-type text/html",
-              "aws s3 cp allure-report.tar.gz s3://${{ github.event.inputs.s3_bucket }}/'$RUN_ID'/allure-report.tar.gz",
-              "echo Done"
+              "echo Tests completed"
             ]' \
             --query 'Command.CommandId' \
             --output text)
@@ -145,6 +141,71 @@ jobs:
             --instance-id ${{ github.event.inputs.instance_id }} \
             --query 'StandardOutputContent' \
             --output text
+      
+      - name: Generate Allure report on EC2
+        run: |
+          RUN_ID=${{ steps.setup.outputs.run_id }}
+          
+          echo "Generating Allure report..."
+          ALLURE_CMD=$(aws ssm send-command \
+            --instance-ids ${{ github.event.inputs.instance_id }} \
+            --document-name "AWS-RunShellScript" \
+            --parameters 'commands=[
+              "cd /tmp/test-'$RUN_ID'",
+              "./allure-2.25.0/bin/allure generate allure-results -o allure-report --clean",
+              "echo Allure report generated"
+            ]' \
+            --query 'Command.CommandId' \
+            --output text)
+          
+          echo "Allure Command ID: $ALLURE_CMD"
+          
+          # Wait for generation to complete
+          for i in {1..20}; do
+            STATUS=$(aws ssm get-command-invocation \
+              --command-id $ALLURE_CMD \
+              --instance-id ${{ github.event.inputs.instance_id }} \
+              --query 'Status' \
+              --output text 2>/dev/null || echo "Pending")
+            echo "Allure Status: $STATUS"
+            if [ "$STATUS" = "Success" ] || [ "$STATUS" = "Failed" ]; then
+              break
+            fi
+            sleep 3
+          done
+      
+      - name: Upload Allure report to S3
+        run: |
+          RUN_ID=${{ steps.setup.outputs.run_id }}
+          
+          echo "Uploading Allure report..."
+          UPLOAD_CMD=$(aws ssm send-command \
+            --instance-ids ${{ github.event.inputs.instance_id }} \
+            --document-name "AWS-RunShellScript" \
+            --parameters 'commands=[
+              "cd /tmp/test-'$RUN_ID'",
+              "tar -czf allure-report.tar.gz allure-report/",
+              "aws s3 cp allure-report.tar.gz s3://${{ github.event.inputs.s3_bucket }}/'$RUN_ID'/allure-report.tar.gz",
+              "echo Upload completed"
+            ]' \
+            --query 'Command.CommandId' \
+            --output text)
+          
+          echo "Upload Command ID: $UPLOAD_CMD"
+          
+          # Wait for upload to complete
+          for i in {1..20}; do
+            STATUS=$(aws ssm get-command-invocation \
+              --command-id $UPLOAD_CMD \
+              --instance-id ${{ github.event.inputs.instance_id }} \
+              --query 'Status' \
+              --output text 2>/dev/null || echo "Pending")
+            echo "Upload Status: $STATUS"
+            if [ "$STATUS" = "Success" ] || [ "$STATUS" = "Failed" ]; then
+              break
+            fi
+            sleep 3
+          done
           
           echo ""
           echo "📊 Reports:"
