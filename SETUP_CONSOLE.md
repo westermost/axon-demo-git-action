@@ -1,6 +1,6 @@
 # Setup Guide - AWS Console (No CLI Required)
 
-Hướng dẫn setup qua giao diện AWS Console, không cần dùng command line.
+Hướng dẫn setup qua giao diện AWS Console cho Python + pytest + Allure.
 
 ---
 
@@ -19,8 +19,8 @@ Hướng dẫn setup qua giao diện AWS Console, không cần dùng command lin
 1. Vào **S3** service: https://s3.console.aws.amazon.com
 2. Click **Create bucket**
 3. Nhập thông tin:
-   - **Bucket name:** `playwright-test-results-<timestamp>` (ví dụ: playwright-test-results-20241202)
-   - **AWS Region:** `us-east-1` (hoặc region bạn chọn)
+   - **Bucket name:** `test-results-<timestamp>` (ví dụ: test-results-20241203)
+   - **AWS Region:** `Asia Pacific (Singapore) ap-southeast-1`
    - Để mặc định các settings khác
 4. Click **Create bucket**
 
@@ -49,7 +49,7 @@ Hướng dẫn setup qua giao diện AWS Console, không cần dùng command lin
 1. Vào **IAM** → **Roles**
 2. Click **Create role**
 3. Chọn **Custom trust policy**
-4. Paste policy sau (thay `YOUR_ACCOUNT_ID`, `YOUR_GITHUB_ORG`, `YOUR_REPO`):
+4. Paste policy sau (thay `YOUR_ACCOUNT_ID`):
 
 ```json
 {
@@ -66,7 +66,7 @@ Hướng dẫn setup qua giao diện AWS Console, không cần dùng command lin
           "token.actions.githubusercontent.com:aud": "sts.amazonaws.com"
         },
         "StringLike": {
-          "token.actions.githubusercontent.com:sub": "repo:YOUR_GITHUB_ORG/YOUR_REPO:*"
+          "token.actions.githubusercontent.com:sub": "repo:westermost/axon-demo-git-action:*"
         }
       }
     }
@@ -74,29 +74,23 @@ Hướng dẫn setup qua giao diện AWS Console, không cần dùng command lin
 }
 ```
 
-**Ví dụ:**
-- YOUR_ACCOUNT_ID: `123456789012`
-- YOUR_GITHUB_ORG: `westermost`
-- YOUR_REPO: `axon-demo-git-action`
-
 5. Click **Next**
 
 ### 4.2. Attach Permissions
 
-6. Tìm và chọn các policies sau:
+6. Tìm và chọn các policies:
    - ☑️ `AmazonEC2FullAccess`
    - ☑️ `AmazonSSMFullAccess`
    - ☑️ `AmazonS3FullAccess`
-
 7. Click **Next**
 
 ### 4.3. Đặt tên Role
 
-8. **Role name:** `GitHubActionsPlaywrightRole`
-9. **Description:** `Role for GitHub Actions to run Playwright tests on EC2`
+8. **Role name:** `GitHubActionsRole`
+9. **Description:** `Role for GitHub Actions to run tests on EC2`
 10. Click **Create role**
 
-**✓ Lưu lại Role ARN:** `arn:aws:iam::YOUR_ACCOUNT_ID:role/GitHubActionsPlaywrightRole`
+**✓ Lưu lại Role ARN:** `arn:aws:iam::YOUR_ACCOUNT_ID:role/GitHubActionsRole`
 
 ---
 
@@ -119,8 +113,8 @@ Hướng dẫn setup qua giao diện AWS Console, không cần dùng command lin
 
 ### 5.3. Đặt tên Role
 
-8. **Role name:** `SSMPlaywrightInstanceRole`
-9. **Description:** `Role for EC2 instance to use SSM and upload to S3`
+8. **Role name:** `SSMInstanceRole`
+9. **Description:** `Role for EC2 to use SSM and upload to S3`
 10. Click **Create role**
 
 ---
@@ -132,12 +126,12 @@ Hướng dẫn setup qua giao diện AWS Console, không cần dùng command lin
 
 ### 6.1. Name and AMI
 
-3. **Name:** `Playwright-Test-Runner`
+3. **Name:** `Test-Runner`
 4. **AMI:** Chọn **Amazon Linux 2023 AMI** (free tier eligible)
 
 ### 6.2. Instance Type
 
-5. **Instance type:** `t3.medium` (hoặc `t3.small` để test)
+5. **Instance type:** `t3.medium`
 
 ### 6.3. Key Pair
 
@@ -145,20 +139,25 @@ Hướng dẫn setup qua giao diện AWS Console, không cần dùng command lin
 
 ### 6.4. Network Settings
 
-7. Để mặc định (VPC default, subnet default)
-8. **Auto-assign public IP:** Enable
+7. **Auto-assign public IP:** Enable
+8. **Firewall (security groups):** Create new security group
+   - Allow SSH (port 22) - Optional
+   - **Add rule:** Custom TCP, Port 8000, Source: 0.0.0.0/0 (for Allure report)
 
 ### 6.5. IAM Instance Profile
 
 9. Click **Advanced details** (mở rộng)
-10. **IAM instance profile:** Chọn `SSMPlaywrightInstanceRole`
+10. **IAM instance profile:** Chọn `SSMInstanceRole`
 
 ### 6.6. Launch
 
 11. Click **Launch instance**
-12. Đợi instance chuyển sang trạng thái **Running** (~1-2 phút)
+12. Đợi instance chuyển sang **Running** (~1-2 phút)
+13. Click vào instance → Copy **Public IPv4 address**
 
-**✓ Lưu lại Instance ID:** `i-xxxxxxxxxxxxxxxxx`
+**✓ Lưu lại:**
+- Instance ID: `____________`
+- Public IP: `____________`
 
 ---
 
@@ -170,7 +169,7 @@ Hướng dẫn setup qua giao diện AWS Console, không cần dùng command lin
 4. Tìm instance của bạn trong danh sách
 5. **Status** phải là **Online**
 
-Nếu chưa thấy instance:
+Nếu chưa thấy:
 - Đợi thêm 2-3 phút
 - Refresh trang
 - Verify IAM role đã attach đúng
@@ -184,14 +183,14 @@ Nếu chưa thấy instance:
 3. Click **Start session**
 4. Chọn instance của bạn
 5. Click **Start session**
-6. Một terminal sẽ mở ra
-7. Gõ lệnh test:
+6. Terminal sẽ mở ra
+7. Gõ test command:
    ```bash
    echo "Hello from SSM"
-   whoami
+   python3 --version
    ```
 8. Nếu thấy output → SSM hoạt động ✓
-9. Click **Terminate** để đóng session
+9. Click **Terminate** để đóng
 
 ---
 
@@ -201,16 +200,16 @@ Nếu chưa thấy instance:
 
 1. Mở: https://github.com/westermost/axon-demo-git-action
 2. Click tab **Settings**
-3. Click **Secrets and variables** → **Actions** (menu bên trái)
+3. Click **Secrets and variables** → **Actions**
 
 ### 9.2. Add Secret
 
 4. Click **New repository secret**
 5. Nhập:
    - **Name:** `AWS_ROLE_ARN`
-   - **Secret:** `arn:aws:iam::YOUR_ACCOUNT_ID:role/GitHubActionsPlaywrightRole`
+   - **Secret:** `arn:aws:iam::YOUR_ACCOUNT_ID:role/GitHubActionsRole`
    
-   (Thay YOUR_ACCOUNT_ID bằng account ID thực tế từ Step 1)
+   (Thay YOUR_ACCOUNT_ID bằng account ID từ Step 1)
 
 6. Click **Add secret**
 
@@ -221,12 +220,12 @@ Nếu chưa thấy instance:
 ### 10.1. Vào Actions Tab
 
 1. Mở: https://github.com/westermost/axon-demo-git-action/actions
-2. Click workflow **"Playwright Tests on AWS EC2 (SSM)"** (bên trái)
-3. Click nút **Run workflow** (màu xanh, góc phải)
+2. Click workflow **"Python Tests on AWS EC2 (SSM)"**
+3. Click nút **Run workflow** (màu xanh)
 
 ### 10.2. Nhập Parameters
 
-4. Một form sẽ hiện ra:
+4. Form sẽ hiện ra:
    - **instance_id:** Paste Instance ID từ Step 6
    - **s3_bucket:** Paste Bucket name từ Step 2
 
@@ -235,82 +234,78 @@ Nếu chưa thấy instance:
 ### 10.3. Monitor Workflow
 
 6. Workflow sẽ xuất hiện trong danh sách
-7. Click vào workflow run để xem chi tiết
-8. Xem logs real-time của từng step
-9. Đợi workflow hoàn thành (~5-10 phút)
+7. Click vào để xem chi tiết
+8. Xem logs real-time
+9. Đợi hoàn thành (~3-4 phút)
 
-**Các step workflow sẽ chạy:**
-- ✓ Start EC2 instance
-- ✓ Wait for SSM agent
-- ✓ Setup Node.js on EC2
-- ✓ Run Playwright tests
-- ✓ Upload results to S3
-- ✓ Download results
-- ✓ Generate reports
-- ✓ Stop EC2 instance
+**Workflow steps:**
+- ✓ Setup environment (~2 min)
+- ✓ Run tests (~30 sec)
+- ✓ Generate Allure report (~10 sec)
+- ✓ Upload to S3 (~5 sec)
+- ✓ Serve on port 8000 (~1 sec)
 
 ---
 
-## STEP 11: Download Test Results
+## STEP 11: View Test Reports
 
-Sau khi workflow hoàn thành:
+Sau khi workflow hoàn thành, có 3 cách xem reports:
 
-1. Scroll xuống cuối trang workflow
-2. Tìm section **Artifacts**
-3. Download các files:
-   - **playwright-report-ec2** - Playwright HTML report
-   - **allure-report-ec2** - Allure report
+### Option 1: EC2 HTTP Server (Fastest) ⭐
 
-4. Extract file zip
-5. Mở `index.html` trong browser để xem report
+```
+http://<PUBLIC_IP>:8000
+```
+
+Mở URL này trong browser để xem Allure report trực tiếp!
+
+### Option 2: S3 Online
+
+```
+https://<bucket>.s3.ap-southeast-1.amazonaws.com/<run-id>/allure-report/index.html
+```
+
+### Option 3: Pytest HTML Report
+
+```
+https://<bucket>.s3.ap-southeast-1.amazonaws.com/<run-id>/report.html
+```
 
 ---
 
-## STEP 12: Verify Results in S3
+## STEP 12: Stop EC2 (Save Cost)
 
-1. Vào **S3** console: https://s3.console.aws.amazon.com
-2. Click vào bucket của bạn
-3. Sẽ thấy folder với timestamp (ví dụ: `20241202-143000/`)
-4. Bên trong có:
-   - `playwright-report/` - HTML reports
-   - `allure-results/` - JSON results
-   - `results.tar.gz` - Compressed archive
-
----
-
-## STEP 13: Cleanup Resources
-
-### 13.1. Stop EC2 Instance (tiết kiệm chi phí)
+EC2 sẽ chạy liên tục. Để tiết kiệm chi phí:
 
 1. Vào **EC2** console
 2. Chọn instance của bạn
 3. Click **Instance state** → **Stop instance**
+4. Confirm
 
-### 13.2. Terminate EC2 (xóa hoàn toàn)
+**Lưu ý:** Khi stop, Public IP sẽ thay đổi. Nên dùng Elastic IP nếu muốn IP cố định.
+
+---
+
+## Cleanup (Optional)
+
+### Terminate EC2
 
 1. Chọn instance
 2. Click **Instance state** → **Terminate instance**
 3. Confirm
 
-### 13.3. Delete S3 Bucket
+### Delete S3 Bucket
 
 1. Vào **S3** console
-2. Chọn bucket của bạn
-3. Click **Empty** (xóa tất cả files)
-4. Confirm
-5. Click **Delete** (xóa bucket)
-6. Nhập tên bucket để confirm
+2. Chọn bucket
+3. Click **Empty** → Confirm
+4. Click **Delete** → Nhập tên bucket → Confirm
 
-### 13.4. (Optional) Delete IAM Roles
-
-Nếu không dùng nữa:
+### Delete IAM Roles
 
 1. Vào **IAM** → **Roles**
-2. Tìm `SSMPlaywrightInstanceRole`
-3. Click vào role
-4. Click **Delete**
-5. Confirm
-6. Lặp lại cho `GitHubActionsPlaywrightRole`
+2. Tìm `SSMInstanceRole` và `GitHubActionsRole`
+3. Delete từng role
 
 ---
 
@@ -318,85 +313,66 @@ Nếu không dùng nữa:
 
 ### Issue 1: SSM Agent không Online
 
-**Triệu chứng:** Không thấy instance trong Fleet Manager
-
 **Giải pháp:**
 1. Đợi thêm 2-3 phút
-2. Verify IAM role đã attach:
-   - Vào EC2 → chọn instance
-   - Tab **Security** → xem **IAM Role**
-   - Phải là `SSMPlaywrightInstanceRole`
+2. Verify IAM role:
+   - EC2 → chọn instance → Tab **Security** → xem **IAM Role**
+   - Phải là `SSMInstanceRole`
 3. Reboot instance:
    - Instance state → Reboot instance
 
-### Issue 2: GitHub Actions không assume role được
-
-**Triệu chứng:** Workflow fail ở step "Configure AWS credentials"
+### Issue 2: Port 8000 không access được
 
 **Giải pháp:**
-1. Verify OIDC provider đã tạo:
+1. Check Security Group:
+   - EC2 → chọn instance → Tab **Security**
+   - Click vào Security Group
+   - Tab **Inbound rules**
+   - Phải có rule: TCP port 8000, Source 0.0.0.0/0
+2. Nếu chưa có, click **Edit inbound rules** → Add rule
+
+### Issue 3: GitHub Actions không assume role được
+
+**Giải pháp:**
+1. Verify OIDC provider:
    - IAM → Identity providers
    - Phải thấy `token.actions.githubusercontent.com`
-2. Check trust policy của role:
-   - IAM → Roles → GitHubActionsPlaywrightRole
-   - Tab **Trust relationships**
-   - Verify repo name đúng
+2. Check trust policy:
+   - IAM → Roles → GitHubActionsRole → Trust relationships
+   - Verify repo name đúng: `westermost/axon-demo-git-action`
 3. Check GitHub secret:
-   - GitHub repo → Settings → Secrets
    - Verify `AWS_ROLE_ARN` có giá trị đúng
 
-### Issue 3: Tests fail trên EC2
-
-**Triệu chứng:** Workflow chạy nhưng tests fail
+### Issue 4: Tests không chạy
 
 **Giải pháp:**
-1. Xem logs trong workflow để biết lỗi cụ thể
-2. Check EC2 instance type:
-   - Minimum: t3.small
-   - Recommended: t3.medium
-3. Test manual qua Session Manager:
-   - Systems Manager → Session Manager
-   - Start session vào instance
-   - Chạy commands thủ công
+1. Xem setup logs trong workflow
+2. Check git clone có thành công không
+3. Verify EC2 có internet access
 
-### Issue 4: S3 upload fails
-
-**Triệu chứng:** Tests chạy OK nhưng không upload được S3
+### Issue 5: Allure report trống
 
 **Giải pháp:**
-1. Verify EC2 role có S3 permissions:
-   - IAM → Roles → SSMPlaywrightInstanceRole
-   - Tab **Permissions**
-   - Phải có `AmazonS3FullAccess`
-2. Check bucket name đúng trong workflow input
-3. Verify bucket tồn tại:
-   - S3 console → tìm bucket
-
-### Issue 5: Workflow timeout
-
-**Triệu chứng:** Workflow chạy quá lâu và timeout
-
-**Giải pháp:**
-1. Tăng instance type lên t3.medium
-2. Check network connectivity của EC2
-3. Verify EC2 có internet access (cần download packages)
+1. Tests có thể đã fail
+2. Check pytest output trong workflow logs
+3. Verify allure-pytest đã được install
 
 ---
 
 ## Summary Checklist
 
 - [ ] Lấy AWS Account ID
-- [ ] Tạo S3 bucket
+- [ ] Tạo S3 bucket (Singapore region)
 - [ ] Tạo OIDC provider
 - [ ] Tạo GitHub Actions IAM role
 - [ ] Tạo EC2 IAM role
-- [ ] Launch EC2 instance
+- [ ] Launch EC2 instance (với port 8000 open)
 - [ ] Verify SSM agent online
 - [ ] Test SSM connection
 - [ ] Add GitHub secret
 - [ ] Run workflow
-- [ ] Download reports
-- [ ] Cleanup resources
+- [ ] View report trên http://<IP>:8000
+- [ ] Stop EC2 khi không dùng
 
 ---
 
@@ -408,39 +384,26 @@ Nếu không dùng nữa:
 AWS Account ID: ____________
 S3 Bucket: ____________
 EC2 Instance ID: ____________
-GitHub Actions Role ARN: arn:aws:iam::____________:role/GitHubActionsPlaywrightRole
+EC2 Public IP: ____________
+GitHub Actions Role ARN: arn:aws:iam::____________:role/GitHubActionsRole
 ```
+
+**Report URL:** `http://<PUBLIC_IP>:8000`
 
 **Links quan trọng:**
 
 - AWS Console: https://console.aws.amazon.com
 - GitHub Repo: https://github.com/westermost/axon-demo-git-action
 - GitHub Actions: https://github.com/westermost/axon-demo-git-action/actions
-- GitHub Settings: https://github.com/westermost/axon-demo-git-action/settings
-
----
-
-## Tips
-
-1. **Bookmark các AWS console links** để truy cập nhanh
-2. **Screenshot các bước** để tham khảo sau
-3. **Lưu thông tin** vào file text để không phải tìm lại
-4. **Stop EC2** khi không dùng để tiết kiệm chi phí
-5. **Check S3 costs** - xóa old results định kỳ
-6. **Test với t3.small** trước, nếu chậm thì nâng lên t3.medium
 
 ---
 
 ## Cost Estimate
 
-**Ước tính chi phí (us-east-1):**
+**Ước tính chi phí (Singapore region):**
 
-- EC2 t3.medium: ~$0.04/hour
-- S3 storage: ~$0.023/GB/month
+- EC2 t3.medium: ~$0.05/hour (~$36/month nếu chạy 24/7)
+- S3 storage: ~$0.025/GB/month (~$0.03/month cho 100 test runs)
 - Data transfer: Free tier 100GB/month
 
-**Ví dụ:** Chạy 10 tests/ngày, mỗi lần 10 phút:
-- EC2: 10 phút × 10 lần = 100 phút/ngày ≈ $0.07/ngày
-- S3: ~100MB results ≈ $0.002/tháng
-
-**Tổng:** ~$2-3/tháng cho usage thông thường
+**Khuyến nghị:** Stop EC2 khi không dùng → ~$1-2/month
