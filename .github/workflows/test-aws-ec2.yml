@@ -70,11 +70,14 @@ jobs:
             --document-name "AWS-RunShellScript" \
             --parameters 'commands=[
               "cd /tmp && rm -rf test-'$RUN_ID' && mkdir test-'$RUN_ID' && cd test-'$RUN_ID'",
+              "echo === Installing git ===",
+              "sudo yum install -y git",
+              "git --version",
               "echo === Cloning repository ===",
-              "git clone https://github.com/${{ github.repository }}.git . || exit 1",
+              "git clone https://github.com/${{ github.repository }}.git .",
               "echo === Verify clone ===",
               "ls -la",
-              "ls -la tests/ || echo \"ERROR: tests directory not found\"",
+              "ls -la tests/",
               "echo === Installing dependencies ===",
               "sudo yum install -y python3-pip java-17-amazon-corretto-headless",
               "pip3 install -r requirements.txt",
