@@ -1,6 +1,8 @@
-name: Playwright Tests on AWS EC2 (SSM)
+name: Python Tests on AWS EC2 (SSM)
 
 on:
+  pull_request:
+    types: [opened, synchronize, reopened]
   workflow_dispatch:
     inputs:
       instance_id:
@@ -15,9 +17,12 @@ on:
 permissions:
   id-token: write
   contents: read
+  pull-requests: write
 
 env:
   AWS_REGION: ap-southeast-1
+  INSTANCE_ID: ${{ github.event.inputs.instance_id || 'i-0cd39c0cf451a83cc' }}
+  S3_BUCKET: ${{ github.event.inputs.s3_bucket || 'kiemtraxe' }}
 
 jobs:
   test-on-ec2:
@@ -34,9 +39,9 @@ jobs:
 
       - name: Start EC2 instance
         run: |
-          echo "Starting EC2 instance ${{ github.event.inputs.instance_id }}"
-          aws ec2 start-instances --instance-ids ${{ github.event.inputs.instance_id }}
-          aws ec2 wait instance-running --instance-ids ${{ github.event.inputs.instance_id }}
+          echo "Starting EC2 instance ${{ env.INSTANCE_ID }}"
+          aws ec2 start-instances --instance-ids ${{ env.INSTANCE_ID }}
+          aws ec2 wait instance-running --instance-ids ${{ env.INSTANCE_ID }}
           echo "✓ Instance started"
 
       - name: Wait for SSM agent
@@ -46,7 +51,7 @@ jobs:
 
           for i in {1..12}; do
             STATUS=$(aws ssm describe-instance-information \
-              --filters "Key=InstanceIds,Values=${{ github.event.inputs.instance_id }}" \
+              --filters "Key=InstanceIds,Values=${{ env.INSTANCE_ID }}" \
               --query 'InstanceInformationList[0].PingStatus' \
               --output text 2>/dev/null || echo "Unknown")
 
@@ -66,7 +71,7 @@ jobs:
           
           echo "Setting up environment..."
           SETUP_CMD=$(aws ssm send-command \
-            --instance-ids ${{ github.event.inputs.instance_id }} \
+            --instance-ids ${{ env.INSTANCE_ID }} \
             --document-name "AWS-RunShellScript" \
             --parameters 'commands=[
               "cd /tmp && rm -rf test-'$RUN_ID' && mkdir test-'$RUN_ID' && cd test-'$RUN_ID'",
@@ -95,7 +100,7 @@ jobs:
           for i in {1..30}; do
             STATUS=$(aws ssm get-command-invocation \
               --command-id $SETUP_CMD \
-              --instance-id ${{ github.event.inputs.instance_id }} \
+              --instance-id ${{ env.INSTANCE_ID }} \
               --query 'Status' \
               --output text 2>/dev/null || echo "Pending")
             echo "Setup Status: $STATUS"
@@ -113,7 +118,7 @@ jobs:
           echo "=== Setup Output ==="
           aws ssm get-command-invocation \
             --command-id $SETUP_CMD \
-            --instance-id ${{ github.event.inputs.instance_id }} \
+            --instance-id ${{ env.INSTANCE_ID }} \
             --query 'StandardOutputContent' \
             --output text
       
@@ -124,7 +129,7 @@ jobs:
           
           echo "Running tests..."
           TEST_CMD=$(aws ssm send-command \
-            --instance-ids ${{ github.event.inputs.instance_id }} \
+            --instance-ids ${{ env.INSTANCE_ID }} \
             --document-name "AWS-RunShellScript" \
             --parameters 'commands=[
               "cd /tmp/test-'$RUN_ID'",
@@ -139,7 +144,7 @@ jobs:
               "echo === Running pytest ===",
               "python3 -m pytest tests/ -v --html=report.html --self-contained-html --alluredir=allure-results",
               "echo === Upload HTML report ===",
-              "aws s3 cp report.html s3://${{ github.event.inputs.s3_bucket }}/'$RUN_ID'/report.html --content-type text/html",
+              "aws s3 cp report.html s3://${{ env.S3_BUCKET }}/'$RUN_ID'/report.html --content-type text/html",
               "echo Tests completed"
             ]' \
             --query 'Command.CommandId' \
@@ -151,7 +156,7 @@ jobs:
           for i in {1..30}; do
             STATUS=$(aws ssm get-command-invocation \
               --command-id $TEST_CMD \
-              --instance-id ${{ github.event.inputs.instance_id }} \
+              --instance-id ${{ env.INSTANCE_ID }} \
               --query 'Status' \
               --output text 2>/dev/null || echo "Pending")
             echo "Test Status: $STATUS"
@@ -165,7 +170,7 @@ jobs:
           echo "=== Test Output ==="
           aws ssm get-command-invocation \
             --command-id $TEST_CMD \
-            --instance-id ${{ github.event.inputs.instance_id }} \
+            --instance-id ${{ env.INSTANCE_ID }} \
             --query 'StandardOutputContent' \
             --output text
       
@@ -175,7 +180,7 @@ jobs:
           
           echo "Generating Allure report..."
           ALLURE_CMD=$(aws ssm send-command \
-            --instance-ids ${{ github.event.inputs.instance_id }} \
+            --instance-ids ${{ env.INSTANCE_ID }} \
             --document-name "AWS-RunShellScript" \
             --parameters 'commands=[
               "cd /tmp/test-'$RUN_ID'",
@@ -191,7 +196,7 @@ jobs:
           for i in {1..20}; do
             STATUS=$(aws ssm get-command-invocation \
               --command-id $ALLURE_CMD \
-              --instance-id ${{ github.event.inputs.instance_id }} \
+              --instance-id ${{ env.INSTANCE_ID }} \
               --query 'Status' \
               --output text 2>/dev/null || echo "Pending")
             echo "Allure Status: $STATUS"
@@ -207,14 +212,14 @@ jobs:
           
           echo "Uploading Allure report..."
           UPLOAD_CMD=$(aws ssm send-command \
-            --instance-ids ${{ github.event.inputs.instance_id }} \
+            --instance-ids ${{ env.INSTANCE_ID }} \
             --document-name "AWS-RunShellScript" \
             --parameters 'commands=[
               "cd /tmp/test-'$RUN_ID'",
-              "aws s3 sync allure-report/ s3://${{ github.event.inputs.s3_bucket }}/'$RUN_ID'/allure-report/ --content-type text/html --exclude \"*\" --include \"*.html\"",
-              "aws s3 sync allure-report/ s3://${{ github.event.inputs.s3_bucket }}/'$RUN_ID'/allure-report/ --exclude \"*.html\"",
+              "aws s3 sync allure-report/ s3://${{ env.S3_BUCKET }}/'$RUN_ID'/allure-report/ --content-type text/html --exclude \"*\" --include \"*.html\"",
+              "aws s3 sync allure-report/ s3://${{ env.S3_BUCKET }}/'$RUN_ID'/allure-report/ --exclude \"*.html\"",
               "tar -czf allure-report.tar.gz allure-report/",
-              "aws s3 cp allure-report.tar.gz s3://${{ github.event.inputs.s3_bucket }}/'$RUN_ID'/allure-report.tar.gz",
+              "aws s3 cp allure-report.tar.gz s3://${{ env.S3_BUCKET }}/'$RUN_ID'/allure-report.tar.gz",
               "echo Upload completed"
             ]' \
             --query 'Command.CommandId' \
@@ -226,7 +231,7 @@ jobs:
           for i in {1..20}; do
             STATUS=$(aws ssm get-command-invocation \
               --command-id $UPLOAD_CMD \
-              --instance-id ${{ github.event.inputs.instance_id }} \
+              --instance-id ${{ env.INSTANCE_ID }} \
               --query 'Status' \
               --output text 2>/dev/null || echo "Pending")
             echo "Upload Status: $STATUS"
@@ -238,9 +243,9 @@ jobs:
           
           echo ""
           echo "📊 Reports:"
-          echo "Pytest HTML: https://${{ github.event.inputs.s3_bucket }}.s3.ap-southeast-1.amazonaws.com/$RUN_ID/report.html"
-          echo "Allure Report (online): https://${{ github.event.inputs.s3_bucket }}.s3.ap-southeast-1.amazonaws.com/$RUN_ID/allure-report/index.html"
-          echo "Allure Report (zip): https://${{ github.event.inputs.s3_bucket }}.s3.ap-southeast-1.amazonaws.com/$RUN_ID/allure-report.tar.gz"
+          echo "Pytest HTML: https://${{ env.S3_BUCKET }}.s3.ap-southeast-1.amazonaws.com/$RUN_ID/report.html"
+          echo "Allure Report (online): https://${{ env.S3_BUCKET }}.s3.ap-southeast-1.amazonaws.com/$RUN_ID/allure-report/index.html"
+          echo "Allure Report (zip): https://${{ env.S3_BUCKET }}.s3.ap-southeast-1.amazonaws.com/$RUN_ID/allure-report.tar.gz"
       
       - name: Serve Allure report on EC2
         run: |
@@ -248,13 +253,13 @@ jobs:
           
           # Get EC2 public IP
           PUBLIC_IP=$(aws ec2 describe-instances \
-            --instance-ids ${{ github.event.inputs.instance_id }} \
+            --instance-ids ${{ env.INSTANCE_ID }} \
             --query 'Reservations[0].Instances[0].PublicIpAddress' \
             --output text)
           
           echo "Starting HTTP server for Allure report..."
           aws ssm send-command \
-            --instance-ids ${{ github.event.inputs.instance_id }} \
+            --instance-ids ${{ env.INSTANCE_ID }} \
             --document-name "AWS-RunShellScript" \
             --parameters 'commands=[
               "cd /tmp/test-'$RUN_ID'/allure-report",
