@@ -36,19 +36,33 @@ pytest tests/ -v
 
 ### Run Tests on AWS EC2
 
+**Option 1: Automatic (via Pull Request)**
+1. Create a new branch:
+   ```bash
+   git checkout -b add-new-test
+   ```
+2. Make changes and commit:
+   ```bash
+   git add .
+   git commit -m "Add new test"
+   git push origin add-new-test
+   ```
+3. Create PR on GitHub
+4. Workflow runs automatically on EC2
+5. View results in Actions tab
+
+**Option 2: Manual**
 1. Setup AWS infrastructure (one-time): See [SETUP_CONSOLE.md](./SETUP_CONSOLE.md)
 2. Go to GitHub Actions → "Python Tests on AWS EC2 (SSM)"
 3. Click "Run workflow"
-4. Enter:
-   - **instance_id**: Your EC2 instance ID
-   - **s3_bucket**: Your S3 bucket name
-5. Wait for completion (~3-5 minutes)
+4. Wait for completion (~3-5 minutes)
 
 ## Workflow Steps
 
 ### 1. Setup Environment on EC2
 - Install git, pip, Java
 - Clone repository
+- **Checkout correct PR branch/commit** (ensures tests run on PR code, not main)
 - Install pytest, allure-pytest
 - Download Allure commandline
 
@@ -64,7 +78,8 @@ pytest tests/ -v
 - Upload Allure report (HTML + zip)
 
 ### 5. Serve Report on EC2
-- Start HTTP server on port 8000
+- Kill old HTTP server (if running)
+- Start new HTTP server on port 8000
 - Access report via: `http://<EC2-IP>:8000`
 
 ## View Reports
