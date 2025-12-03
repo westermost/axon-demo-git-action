@@ -63,6 +63,53 @@ jobs:
             sleep 10
           done
 
+      - name: Cleanup old data
+        run: |
+          echo "=== Cleaning up old test data and reports ==="
+          
+          CLEANUP_CMD=$(aws ssm send-command \
+            --instance-ids ${{ env.INSTANCE_ID }} \
+            --document-name "AWS-RunShellScript" \
+            --parameters 'commands=[
+              "echo === Listing old test directories ===",
+              "ls -lt /tmp/ | grep test- || echo No old test directories",
+              "echo === Stopping all HTTP servers on port 8000 ===",
+              "pkill -f \"python3 -m http.server 8000\" && echo Servers stopped || echo No servers running",
+              "sleep 1",
+              "echo === Removing old test directories ===",
+              "rm -rf /tmp/test-* && echo Old directories removed || echo No directories to remove",
+              "echo === Removing old server logs ===",
+              "rm -f /tmp/allure-server*.log && echo Old logs removed || echo No logs to remove",
+              "echo === Cleanup completed ===",
+              "ls -lt /tmp/ | grep test- || echo All test directories cleaned"
+            ]' \
+            --query 'Command.CommandId' \
+            --output text)
+          
+          echo "Cleanup Command ID: $CLEANUP_CMD"
+          
+          # Wait for cleanup to complete
+          for i in {1..10}; do
+            STATUS=$(aws ssm get-command-invocation \
+              --command-id $CLEANUP_CMD \
+              --instance-id ${{ env.INSTANCE_ID }} \
+              --query 'Status' \
+              --output text 2>/dev/null || echo "Pending")
+            echo "Cleanup Status: $STATUS"
+            if [ "$STATUS" = "Success" ] || [ "$STATUS" = "Failed" ]; then
+              break
+            fi
+            sleep 2
+          done
+          
+          # Show cleanup output
+          echo "=== Cleanup Output ==="
+          aws ssm get-command-invocation \
+            --command-id $CLEANUP_CMD \
+            --instance-id ${{ env.INSTANCE_ID }} \
+            --query 'StandardOutputContent' \
+            --output text
+
       - name: Setup environment on EC2
         id: setup
         run: |
@@ -80,6 +127,11 @@ jobs:
               "git --version",
               "echo === Cloning repository ===",
               "git clone https://github.com/${{ github.repository }}.git .",
+              "echo === Checking out correct ref ===",
+              "git fetch origin ${{ github.ref }}",
+              "git checkout ${{ github.sha }}",
+              "echo === Current branch/commit ===",
+              "git log -1 --oneline",
               "echo === Verify clone ===",
               "ls -la",
               "ls -la tests/",
@@ -247,7 +299,50 @@ jobs:
           echo "Allure Report (online): https://${{ env.S3_BUCKET }}.s3.ap-southeast-1.amazonaws.com/$RUN_ID/allure-report/index.html"
           echo "Allure Report (zip): https://${{ env.S3_BUCKET }}.s3.ap-southeast-1.amazonaws.com/$RUN_ID/allure-report.tar.gz"
       
-      - name: Serve Allure report on EC2
+      - name: Stop old Allure server
+        run: |
+          echo "=== Stopping old HTTP server on port 8000 ==="
+          
+          STOP_CMD=$(aws ssm send-command \
+            --instance-ids ${{ env.INSTANCE_ID }} \
+            --document-name "AWS-RunShellScript" \
+            --parameters 'commands=[
+              "echo === Checking for running servers ===",
+              "ps aux | grep \"python3 -m http.server 8000\" | grep -v grep || echo No server found",
+              "echo === Killing old servers ===",
+              "pkill -f \"python3 -m http.server 8000\" && echo Server killed || echo No server to kill",
+              "sleep 1",
+              "echo === Verifying servers stopped ===",
+              "ps aux | grep \"python3 -m http.server 8000\" | grep -v grep || echo All servers stopped"
+            ]' \
+            --query 'Command.CommandId' \
+            --output text)
+          
+          echo "Stop Command ID: $STOP_CMD"
+          
+          # Wait for stop to complete
+          for i in {1..10}; do
+            STATUS=$(aws ssm get-command-invocation \
+              --command-id $STOP_CMD \
+              --instance-id ${{ env.INSTANCE_ID }} \
+              --query 'Status' \
+              --output text 2>/dev/null || echo "Pending")
+            echo "Stop Status: $STATUS"
+            if [ "$STATUS" = "Success" ] || [ "$STATUS" = "Failed" ]; then
+              break
+            fi
+            sleep 2
+          done
+          
+          # Show stop output
+          echo "=== Stop Output ==="
+          aws ssm get-command-invocation \
+            --command-id $STOP_CMD \
+            --instance-id ${{ env.INSTANCE_ID }} \
+            --query 'StandardOutputContent' \
+            --output text
+      
+      - name: Start new Allure server
         run: |
           RUN_ID=${{ steps.setup.outputs.run_id }}
           
@@ -257,19 +352,60 @@ jobs:
             --query 'Reservations[0].Instances[0].PublicIpAddress' \
             --output text)
           
-          echo "Starting HTTP server for Allure report..."
-          aws ssm send-command \
+          echo "=== Starting new HTTP server for Allure report ==="
+          echo "Report directory: /tmp/test-$RUN_ID/allure-report"
+          
+          START_CMD=$(aws ssm send-command \
             --instance-ids ${{ env.INSTANCE_ID }} \
             --document-name "AWS-RunShellScript" \
             --parameters 'commands=[
-              "cd /tmp/test-'$RUN_ID'/allure-report",
-              "nohup python3 -m http.server 8000 > /tmp/allure-server.log 2>&1 &",
-              "echo Server started on port 8000"
+              "echo === Current test directories ===",
+              "ls -lt /tmp/ | grep test- | head -5",
+              "echo === Target directory: /tmp/test-'$RUN_ID' ===",
+              "ls -la /tmp/test-'$RUN_ID'/ || echo Directory not found",
+              "echo === Navigating to report directory ===",
+              "cd /tmp/test-'$RUN_ID'/allure-report || exit 1",
+              "pwd",
+              "echo === Listing report files ===",
+              "ls -lh | head -10",
+              "echo === Checking index.html ===",
+              "ls -lh index.html",
+              "echo === Starting HTTP server ===",
+              "nohup python3 -m http.server 8000 > /tmp/allure-server-'$RUN_ID'.log 2>&1 &",
+              "sleep 2",
+              "echo === Verifying server started ===",
+              "ps aux | grep \"python3 -m http.server 8000\" | grep -v grep",
+              "echo === Server log ===",
+              "tail -10 /tmp/allure-server-'$RUN_ID'.log || echo No log yet",
+              "echo === Server started successfully on port 8000 ===",
+              "echo Report path: /tmp/test-'$RUN_ID'/allure-report"
             ]' \
             --query 'Command.CommandId' \
-            --output text
+            --output text)
           
-          sleep 3
+          echo "Start Command ID: $START_CMD"
+          
+          # Wait for start to complete
+          for i in {1..10}; do
+            STATUS=$(aws ssm get-command-invocation \
+              --command-id $START_CMD \
+              --instance-id ${{ env.INSTANCE_ID }} \
+              --query 'Status' \
+              --output text 2>/dev/null || echo "Pending")
+            echo "Start Status: $STATUS"
+            if [ "$STATUS" = "Success" ] || [ "$STATUS" = "Failed" ]; then
+              break
+            fi
+            sleep 2
+          done
+          
+          # Show start output
+          echo "=== Start Output ==="
+          aws ssm get-command-invocation \
+            --command-id $START_CMD \
+            --instance-id ${{ env.INSTANCE_ID }} \
+            --query 'StandardOutputContent' \
+            --output text
           
           echo ""
           echo "🌐 Allure Report Server:"

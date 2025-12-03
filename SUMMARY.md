@@ -5,6 +5,7 @@
 | File | Purpose | When to Use |
 |------|---------|-------------|
 | **QUICK_REFERENCE.md** | Commands & URLs cheat sheet | 👉 Dùng hàng ngày |
+| **PR_WORKFLOW.md** | Pull Request workflow guide | 👉 Tạo PR và auto-test |
 | **SETUP_CONSOLE.md** | Setup qua AWS Console (GUI) | Lần đầu setup, không dùng CLI |
 | **QUICK_START.md** | 5-minute setup commands | Setup nhanh với AWS CLI |
 | **SETUP_STEP_BY_STEP.md** | Chi tiết từng bước CLI | Prefer command line |
@@ -15,12 +16,15 @@
 
 ### Workflow: Python Tests on AWS EC2 (SSM)
 
-**Trigger**: Manual (workflow_dispatch)
+**Trigger**: 
+- Automatic: Pull Request (opened, synchronize, reopened)
+- Manual: workflow_dispatch
 
 **Steps**:
 1. **Setup Environment** (~2 min)
    - Install git, pip, Java
    - Clone repository
+   - **Checkout PR branch/commit** (test exact PR code)
    - Install pytest, allure-pytest
    - Download Allure CLI
 
@@ -37,7 +41,8 @@
    - Upload Allure zip (downloadable)
 
 5. **Serve on EC2** (~1 sec)
-   - Start HTTP server on port 8000
+   - Kill old HTTP server (prevent stale reports)
+   - Start new HTTP server on port 8000
    - Access: `http://<EC2-IP>:8000`
 
 **Total Time**: ~3-4 minutes

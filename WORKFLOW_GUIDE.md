@@ -21,7 +21,7 @@ git push origin master
 ### 2. AWS EC2 Workflow (test-aws-ec2.yml)
 Runs tests on AWS EC2 instance via SSM.
 
-**Trigger**: Manual workflow dispatch
+**Trigger**: Pull Request (opened, synchronize, reopened) or Manual workflow dispatch
 
 **Features**:
 - ✅ Runs on dedicated EC2 instance
@@ -31,12 +31,26 @@ Runs tests on AWS EC2 instance via SSM.
 - ✅ OIDC authentication (no credentials stored)
 
 **Usage**:
+
+**Automatic (via Pull Request)**:
+1. Create a new branch:
+   ```bash
+   git checkout -b add-new-feature
+   ```
+2. Make changes and commit:
+   ```bash
+   git add .
+   git commit -m "Add new test case"
+   git push origin add-new-feature
+   ```
+3. Create PR on GitHub - workflow runs automatically
+4. View test results and Allure report in Actions tab
+
+**Manual**:
 1. Go to GitHub Actions tab
 2. Select "Playwright Tests on AWS EC2 (SSM)"
 3. Click "Run workflow"
-4. Enter:
-   - EC2 Instance ID (e.g., i-0123456789abcdef)
-   - S3 Bucket name (e.g., corev2-test-results)
+4. Tests run on EC2 and results uploaded to S3
 
 ## Setup Requirements
 

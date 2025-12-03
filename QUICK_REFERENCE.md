@@ -2,13 +2,24 @@
 
 ## Run Workflow
 
+### Option 1: Automatic (Pull Request)
+1. Create branch and add changes:
+   ```bash
+   git checkout -b add-new-test
+   # Make changes
+   git add .
+   git commit -m "Add new test"
+   git push origin add-new-test
+   ```
+2. Create PR on GitHub
+3. Workflow runs automatically
+4. View results in Actions tab
+
+### Option 2: Manual
 1. Go to: https://github.com/westermost/axon-demo-git-action/actions
 2. Click: "Python Tests on AWS EC2 (SSM)"
 3. Click: "Run workflow"
-4. Enter:
-   - **instance_id**: `i-0cd39c0cf451a83cc`
-   - **s3_bucket**: `kiemtraxe`
-5. Click: "Run workflow"
+4. Tests run on EC2 instance `i-0cd39c0cf451a83cc`
 
 ## View Reports
 
@@ -16,6 +27,7 @@
 ```
 http://<EC2-PUBLIC-IP>:8000
 ```
+**Note**: Server tự động restart mỗi lần workflow chạy để hiển thị report mới nhất. Nếu thấy report cũ, hard refresh (Ctrl+F5).
 
 ### Option 2: S3 Online
 ```
@@ -74,6 +86,21 @@ aws ec2 describe-instances \
 ### SSH via SSM (No PEM key)
 ```bash
 aws ssm start-session --target i-0cd39c0cf451a83cc
+```
+
+### Restart Allure Server Manually
+```bash
+# Kill old server
+aws ssm send-command \
+  --instance-ids i-0cd39c0cf451a83cc \
+  --document-name "AWS-RunShellScript" \
+  --parameters 'commands=["pkill -f \"python3 -m http.server 8000\""]'
+
+# Start new server (replace RUN_ID with actual timestamp)
+aws ssm send-command \
+  --instance-ids i-0cd39c0cf451a83cc \
+  --document-name "AWS-RunShellScript" \
+  --parameters 'commands=["cd /tmp/test-<RUN_ID>/allure-report && nohup python3 -m http.server 8000 &"]'
 ```
 
 ### List S3 Test Results
