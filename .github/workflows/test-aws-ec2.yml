@@ -71,17 +71,23 @@ jobs:
             --instance-ids ${{ env.INSTANCE_ID }} \
             --document-name "AWS-RunShellScript" \
             --parameters 'commands=[
-              "echo === Listing old test directories ===",
-              "ls -lt /tmp/ | grep test- || echo No old test directories",
-              "echo === Stopping all HTTP servers on port 8000 ===",
-              "pkill -f \"python3 -m http.server 8000\" && echo Servers stopped || echo No servers running",
-              "sleep 1",
+              "echo === Finding old test directories (>1 hour) ===",
+              "OLD_DIRS=$(find /tmp -maxdepth 1 -name \"test-*\" -type d -mmin +60 2>/dev/null)",
+              "echo \"$OLD_DIRS\"",
+              "echo === Killing HTTP servers for old directories ===",
+              "for dir in $OLD_DIRS; do",
+              "  RUN_ID=$(basename $dir | sed \"s/test-//\")",
+              "  echo \"Checking server for $RUN_ID\"",
+              "  pkill -f \"allure-server-$RUN_ID.log\" 2>/dev/null && echo \"Killed server for $RUN_ID\" || echo \"No server for $RUN_ID\"",
+              "done",
               "echo === Removing old test directories ===",
-              "rm -rf /tmp/test-* && echo Old directories removed || echo No directories to remove",
+              "find /tmp -maxdepth 1 -name \"test-*\" -type d -mmin +60 -exec rm -rf {} + 2>/dev/null || echo No old directories",
               "echo === Removing old server logs ===",
-              "rm -f /tmp/allure-server*.log && echo Old logs removed || echo No logs to remove",
-              "echo === Cleanup completed ===",
-              "ls -lt /tmp/ | grep test- || echo All test directories cleaned"
+              "find /tmp -maxdepth 1 -name \"allure-server-*.log\" -mmin +60 -delete 2>/dev/null || echo No old logs",
+              "echo === Current active test directories ===",
+              "ls -lt /tmp/ | grep test- | head -5 || echo No test directories",
+              "echo === Current running HTTP servers ===",
+              "ps aux | grep \"python3 -m http.server\" | grep -v grep || echo No servers running"
             ]' \
             --query 'Command.CommandId' \
             --output text)
@@ -299,52 +305,10 @@ jobs:
           echo "Allure Report (online): https://${{ env.S3_BUCKET }}.s3.ap-southeast-1.amazonaws.com/$RUN_ID/allure-report/index.html"
           echo "Allure Report (zip): https://${{ env.S3_BUCKET }}.s3.ap-southeast-1.amazonaws.com/$RUN_ID/allure-report.tar.gz"
       
-      - name: Stop old Allure server
-        run: |
-          echo "=== Stopping old HTTP server on port 8000 ==="
-          
-          STOP_CMD=$(aws ssm send-command \
-            --instance-ids ${{ env.INSTANCE_ID }} \
-            --document-name "AWS-RunShellScript" \
-            --parameters 'commands=[
-              "echo === Checking for running servers ===",
-              "ps aux | grep \"python3 -m http.server 8000\" | grep -v grep || echo No server found",
-              "echo === Killing old servers ===",
-              "pkill -f \"python3 -m http.server 8000\" && echo Server killed || echo No server to kill",
-              "sleep 1",
-              "echo === Verifying servers stopped ===",
-              "ps aux | grep \"python3 -m http.server 8000\" | grep -v grep || echo All servers stopped"
-            ]' \
-            --query 'Command.CommandId' \
-            --output text)
-          
-          echo "Stop Command ID: $STOP_CMD"
-          
-          # Wait for stop to complete
-          for i in {1..10}; do
-            STATUS=$(aws ssm get-command-invocation \
-              --command-id $STOP_CMD \
-              --instance-id ${{ env.INSTANCE_ID }} \
-              --query 'Status' \
-              --output text 2>/dev/null || echo "Pending")
-            echo "Stop Status: $STATUS"
-            if [ "$STATUS" = "Success" ] || [ "$STATUS" = "Failed" ]; then
-              break
-            fi
-            sleep 2
-          done
-          
-          # Show stop output
-          echo "=== Stop Output ==="
-          aws ssm get-command-invocation \
-            --command-id $STOP_CMD \
-            --instance-id ${{ env.INSTANCE_ID }} \
-            --query 'StandardOutputContent' \
-            --output text
-      
       - name: Start new Allure server
         run: |
           RUN_ID=${{ steps.setup.outputs.run_id }}
+          PORT=$((8000 + ${{ github.run_number }} % 100))
           
           # Get EC2 public IP
           PUBLIC_IP=$(aws ec2 describe-instances \
@@ -352,33 +316,22 @@ jobs:
             --query 'Reservations[0].Instances[0].PublicIpAddress' \
             --output text)
           
-          echo "=== Starting new HTTP server for Allure report ==="
+          echo "=== Starting HTTP server for Allure report ==="
           echo "Report directory: /tmp/test-$RUN_ID/allure-report"
+          echo "Port: $PORT"
           
           START_CMD=$(aws ssm send-command \
             --instance-ids ${{ env.INSTANCE_ID }} \
             --document-name "AWS-RunShellScript" \
             --parameters 'commands=[
-              "echo === Current test directories ===",
-              "ls -lt /tmp/ | grep test- | head -5",
-              "echo === Target directory: /tmp/test-'$RUN_ID' ===",
-              "ls -la /tmp/test-'$RUN_ID'/ || echo Directory not found",
-              "echo === Navigating to report directory ===",
               "cd /tmp/test-'$RUN_ID'/allure-report || exit 1",
-              "pwd",
-              "echo === Listing report files ===",
-              "ls -lh | head -10",
-              "echo === Checking index.html ===",
-              "ls -lh index.html",
-              "echo === Starting HTTP server ===",
-              "nohup python3 -m http.server 8000 > /tmp/allure-server-'$RUN_ID'.log 2>&1 &",
+              "echo === Starting HTTP server on port '$PORT' ===",
+              "nohup python3 -m http.server '$PORT' > /tmp/allure-server-'$RUN_ID'.log 2>&1 &",
               "sleep 2",
               "echo === Verifying server started ===",
-              "ps aux | grep \"python3 -m http.server 8000\" | grep -v grep",
-              "echo === Server log ===",
-              "tail -10 /tmp/allure-server-'$RUN_ID'.log || echo No log yet",
-              "echo === Server started successfully on port 8000 ===",
-              "echo Report path: /tmp/test-'$RUN_ID'/allure-report"
+              "ps aux | grep \"python3 -m http.server '$PORT'\" | grep -v grep || echo Server not found",
+              "netstat -tuln | grep '$PORT' || ss -tuln | grep '$PORT' || echo Port check failed",
+              "echo === Server started on port '$PORT' ==="
             ]' \
             --query 'Command.CommandId' \
             --output text)
@@ -409,7 +362,8 @@ jobs:
           
           echo ""
           echo "🌐 Allure Report Server:"
-          echo "URL: http://$PUBLIC_IP:8000"
+          echo "URL: http://$PUBLIC_IP:$PORT"
+          echo "Run ID: $RUN_ID"
           echo ""
-          echo "⚠️  Make sure Security Group allows inbound traffic on port 8000"
-          echo "To add rule: aws ec2 authorize-security-group-ingress --group-id <sg-id> --protocol tcp --port 8000 --cidr 0.0.0.0/0"
+          echo "⚠️  Make sure Security Group allows inbound traffic on port $PORT"
+          echo "To add rule: aws ec2 authorize-security-group-ingress --group-id <sg-id> --protocol tcp --port $PORT --cidr 0.0.0.0/0"
