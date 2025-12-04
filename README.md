@@ -78,9 +78,10 @@ pytest tests/ -v
 - Upload Allure report (HTML + zip)
 
 ### 5. Serve Report on EC2
-- Kill old HTTP server (if running)
-- Start new HTTP server on port 8000
-- Access report via: `http://<EC2-IP>:8000`
+- Cleanup old test data (>1 hour) and their HTTP servers
+- Start new HTTP server on dynamic port (8000-8099)
+- Each workflow run gets unique port based on run number
+- Access report via: `http://<EC2-IP>:<PORT>`
 
 ## View Reports
 
@@ -88,9 +89,11 @@ After workflow completes, you have 3 options:
 
 ### Option 1: EC2 HTTP Server (Fastest) ⭐
 ```
-http://<EC2-PUBLIC-IP>:8000
+http://<EC2-PUBLIC-IP>:<PORT>
 ```
 → Direct access, no download needed
+→ Port number shown in workflow output (e.g., 8001, 8002, etc.)
+→ Old servers (>1 hour) are automatically cleaned up
 
 ### Option 2: S3 Online
 ```
@@ -138,13 +141,13 @@ Run pytest → Generate Allure → Upload S3 → Serve on port 8000
 
 ## Troubleshooting
 
-### Port 8000 not accessible
+### Port not accessible
 ```bash
-# Add security group rule
+# Add security group rule for port range 8000-8099
 aws ec2 authorize-security-group-ingress \
   --group-id <sg-id> \
   --protocol tcp \
-  --port 8000 \
+  --port 8000-8099 \
   --cidr 0.0.0.0/0
 ```
 

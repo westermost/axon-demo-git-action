@@ -64,16 +64,17 @@ gh pr create \
 
 Sau khi tạo PR:
 - ✅ GitHub Actions tự động trigger workflow
+- ✅ Cleanup old test data (>1 hour) và kill servers cũ
 - ✅ Clone repository và checkout đúng branch/commit của PR
 - ✅ Tests chạy trên EC2 instance (Singapore) với code từ PR
 - ✅ Allure report được generate
 - ✅ Results upload lên S3
-- ✅ Kill HTTP server cũ (nếu có) để tránh serve report cũ
-- ✅ Start HTTP server mới và serve report mới trên EC2 port 8000
+- ✅ Start HTTP server mới trên port động (8000-8099)
 
 **Lưu ý**: 
 - Workflow sẽ test chính xác code trong PR, không phải code từ main branch
-- Server cũ được kill trước khi start server mới để đảm bảo report luôn mới nhất
+- Mỗi workflow run có port riêng, không conflict khi chạy đồng thời
+- Old servers (>1 hour) tự động cleanup để tiết kiệm tài nguyên
 
 ### 6. Xem Kết Quả
 
@@ -82,7 +83,7 @@ Sau khi tạo PR:
 - Click "Details" để xem workflow logs
 
 **Xem Reports:**
-- Option 1: `http://<EC2-IP>:8000` (fastest)
+- Option 1: `http://<EC2-IP>:<PORT>` (fastest) - Port hiển thị trong workflow output
 - Option 2: S3 URL trong workflow logs
 - Option 3: Download từ S3
 
@@ -157,8 +158,9 @@ gh pr create --title "Fix bug #123" --body "Added validation"
 - ✅ Verify dependencies installed correctly
 
 ### Report không accessible
-- ✅ Check security group mở port 8000
+- ✅ Check security group mở port range 8000-8099
 - ✅ Verify EC2 public IP
+- ✅ Check port number trong workflow output
 - ✅ Check S3 bucket permissions
 
 ### Workflow test sai code (test code từ main thay vì PR)
@@ -170,12 +172,19 @@ gh pr create --title "Fix bug #123" --body "Added validation"
 - ✅ Check workflow logs phần "Current branch/commit"
 
 ### Allure report hiển thị kết quả cũ
-- ✅ Workflow đã được fix để kill server cũ trước khi start server mới
-- ✅ Nếu vẫn thấy report cũ, hard refresh browser (Ctrl+F5)
-- ✅ Hoặc xem report từ S3 URL (luôn mới nhất):
+- ✅ Mỗi workflow run có port riêng, không bị conflict
+- ✅ Check đúng port trong workflow output
+- ✅ Old servers (>1 hour) tự động cleanup
+- ✅ Nếu cần xem report cũ, check S3:
   ```
   https://kiemtraxe.s3.ap-southeast-1.amazonaws.com/<RUN_ID>/allure-report/index.html
   ```
+
+### Multiple PRs chạy đồng thời
+- ✅ Mỗi workflow có port riêng (8000 + run_number % 100)
+- ✅ Không conflict, không ghi đè report
+- ✅ Mỗi run có RUN_ID unique
+- ✅ Test directories và servers độc lập
 
 ## Technical Details
 

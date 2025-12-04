@@ -25,9 +25,13 @@
 
 ### Option 1: EC2 Server (Fastest)
 ```
-http://<EC2-PUBLIC-IP>:8000
+http://<EC2-PUBLIC-IP>:<PORT>
 ```
-**Note**: Server tự động restart mỗi lần workflow chạy để hiển thị report mới nhất. Nếu thấy report cũ, hard refresh (Ctrl+F5).
+**Note**: 
+- Port động (8000-8099) dựa trên workflow run number
+- Check workflow output để biết port cụ thể
+- Old servers (>1 hour) tự động cleanup
+- Concurrent workflows không conflict vì dùng port khác nhau
 
 ### Option 2: S3 Online
 ```
@@ -49,7 +53,7 @@ aws ec2 describe-instances \
   --output text
 ```
 
-### Open Port 8000
+### Open Port Range for Allure Servers
 ```bash
 # Get Security Group ID
 SG_ID=$(aws ec2 describe-instances \
@@ -57,11 +61,11 @@ SG_ID=$(aws ec2 describe-instances \
   --query 'Reservations[0].Instances[0].SecurityGroups[0].GroupId' \
   --output text)
 
-# Add rule
+# Add rule for port range 8000-8099
 aws ec2 authorize-security-group-ingress \
   --group-id $SG_ID \
   --protocol tcp \
-  --port 8000 \
+  --port 8000-8099 \
   --cidr 0.0.0.0/0
 ```
 
@@ -88,19 +92,28 @@ aws ec2 describe-instances \
 aws ssm start-session --target i-0cd39c0cf451a83cc
 ```
 
-### Restart Allure Server Manually
+### List Running Allure Servers
 ```bash
-# Kill old server
 aws ssm send-command \
   --instance-ids i-0cd39c0cf451a83cc \
   --document-name "AWS-RunShellScript" \
-  --parameters 'commands=["pkill -f \"python3 -m http.server 8000\""]'
+  --parameters 'commands=["ps aux | grep \"python3 -m http.server\" | grep -v grep"]'
+```
 
-# Start new server (replace RUN_ID with actual timestamp)
+### Kill All HTTP Servers
+```bash
 aws ssm send-command \
   --instance-ids i-0cd39c0cf451a83cc \
   --document-name "AWS-RunShellScript" \
-  --parameters 'commands=["cd /tmp/test-<RUN_ID>/allure-report && nohup python3 -m http.server 8000 &"]'
+  --parameters 'commands=["pkill -f \"python3 -m http.server\""]'
+```
+
+### Start Server Manually (replace RUN_ID and PORT)
+```bash
+aws ssm send-command \
+  --instance-ids i-0cd39c0cf451a83cc \
+  --document-name "AWS-RunShellScript" \
+  --parameters 'commands=["cd /tmp/test-<RUN_ID>/allure-report && nohup python3 -m http.server <PORT> &"]'
 ```
 
 ### List S3 Test Results
@@ -117,18 +130,19 @@ cd allure-report && python3 -m http.server 8000
 
 ## Workflow Steps
 
-1. **Setup** (~2 min) - Install git, pip, Java, pytest, Allure
-2. **Run Tests** (~30 sec) - Execute 3 tests, upload HTML
-3. **Generate Allure** (~10 sec) - Create Allure report
-4. **Upload S3** (~5 sec) - Upload HTML + zip
-5. **Serve** (~1 sec) - Start HTTP server on port 8000
+1. **Cleanup** (~10 sec) - Remove old test data (>1 hour) and kill their servers
+2. **Setup** (~2 min) - Install git, pip, Java, pytest, Allure
+3. **Run Tests** (~30 sec) - Execute tests, upload HTML
+4. **Generate Allure** (~10 sec) - Create Allure report
+5. **Upload S3** (~5 sec) - Upload HTML + zip
+6. **Serve** (~1 sec) - Start HTTP server on dynamic port (8000-8099)
 
 **Total**: ~3-4 minutes
 
 ## Troubleshooting
 
-### Port 8000 blocked
-→ Add security group rule (see above)
+### Port blocked
+→ Add security group rule for port range 8000-8099 (see above)
 
 ### EC2 stopped
 → Start EC2: `aws ec2 start-instances --instance-ids i-0cd39c0cf451a83cc`
