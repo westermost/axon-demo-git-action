@@ -194,6 +194,62 @@ Nếu chưa thấy:
 
 ---
 
+## STEP 8.5: Setup SSH Deploy Key (For Private Repos)
+
+**Lưu ý:** Bỏ qua bước này nếu repo là **public**.
+
+### 8.5.1. Generate SSH Key trên EC2
+
+1. Vào **Systems Manager** → **Session Manager**
+2. Click **Start session** → Chọn instance
+3. Chạy lệnh tạo SSH key:
+   ```bash
+   ssh-keygen -t ed25519 -C "ec2-deploy-key" -f ~/.ssh/github_deploy_key -N ""
+   ```
+4. Xem public key:
+   ```bash
+   cat ~/.ssh/github_deploy_key.pub
+   ```
+5. **Copy toàn bộ output** (bắt đầu với `ssh-ed25519...`)
+
+### 8.5.2. Add Deploy Key vào GitHub
+
+6. Mở GitHub repo: https://github.com/westermost/axon-demo-git-action
+7. Click **Settings** → **Deploy keys** (menu bên trái)
+8. Click **Add deploy key**
+9. Nhập:
+   - **Title:** `EC2 Test Runner`
+   - **Key:** Paste public key từ bước 5
+   - ☑️ **Allow write access** (nếu cần push results)
+10. Click **Add key**
+
+### 8.5.3. Configure SSH trên EC2
+
+11. Quay lại SSM Session, tạo SSH config:
+    ```bash
+    cat > ~/.ssh/config << 'EOF'
+    Host github.com
+      HostName github.com
+      User git
+      IdentityFile ~/.ssh/github_deploy_key
+      StrictHostKeyChecking no
+    EOF
+    chmod 600 ~/.ssh/config
+    ```
+
+12. Test kết nối:
+    ```bash
+    ssh -T git@github.com
+    ```
+    
+    Kết quả mong đợi: `Hi westermost/axon-demo-git-action! You've successfully authenticated...`
+
+13. Click **Terminate** để đóng session
+
+**✓ Deploy key đã sẵn sàng!** Workflow sẽ clone repo bằng SSH URL.
+
+---
+
 ## STEP 9: Add GitHub Secret
 
 ### 9.1. Vào GitHub Repository
@@ -226,8 +282,8 @@ Nếu chưa thấy:
 ### 10.2. Nhập Parameters
 
 4. Form sẽ hiện ra:
-   - **instance_id:** Paste Instance ID từ Step 6
-   - **s3_bucket:** Paste Bucket name từ Step 2
+   - **instance_id:** Paste Instance ID từ STEP 6
+   - **s3_bucket:** Paste Bucket name từ STEP 2
 
 5. Click **Run workflow**
 
@@ -369,6 +425,7 @@ EC2 sẽ chạy liên tục. Để tiết kiệm chi phí:
 - [ ] Launch EC2 instance (với port 8000 open)
 - [ ] Verify SSM agent online
 - [ ] Test SSM connection
+- [ ] Setup SSH Deploy Key (nếu private repo)
 - [ ] Add GitHub secret
 - [ ] Run workflow
 - [ ] View report trên http://<IP>:8000
